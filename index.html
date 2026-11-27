@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111418">
+<title>Violin Note Reader</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Music&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#111418; --card:#1b2027; --line:#2a313b; --text:#eef1f5; --muted:#8a94a3; --ok:#3ecf8e; --warn:#f5a524; --bad:#f25f5c; }
+  * { box-sizing:border-box; min-width:0; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text);
+         display:flex; flex-direction:column; align-items:center; padding:20px 14px 40px; min-height:100vh; }
+  h1 { font-size:18px; font-weight:600; margin:0 0 14px; color:var(--muted); }
+  h2 { font-size:15px; font-weight:600; margin:0 0 10px; color:var(--muted); }
+  .card { background:var(--card); border-radius:16px; padding:18px; width:100%; max-width:520px; margin-bottom:14px; }
+  #note { font-size:96px; font-weight:700; text-align:center; line-height:1; margin:6px 0; transition:color .15s; }
+  #note sup { font-size:40px; } #note sub { font-size:34px; color:var(--muted); }
+  .row { display:flex; justify-content:space-between; gap:10px; color:var(--muted); font-size:14px; margin-top:8px; flex-wrap:wrap; }
+  .row b { color:var(--text); font-weight:600; }
+  .meter { position:relative; height:46px; margin-top:16px; }
+  .scale { position:absolute; top:20px; left:0; right:0; height:4px; border-radius:2px;
+           background:linear-gradient(90deg,var(--bad),var(--warn) 30%,var(--ok) 45%,var(--ok) 55%,var(--warn) 70%,var(--bad)); }
+  .tick { position:absolute; top:12px; width:2px; height:20px; background:var(--muted); left:50%; transform:translateX(-1px); }
+  #needle { position:absolute; top:4px; width:4px; height:36px; background:var(--text); border-radius:2px; left:50%; transform:translateX(-2px); transition:left .08s linear; }
+  .labels { display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-top:2px; }
+  button { padding:14px; font-size:17px; font-weight:600; border:0; border-radius:12px; background:var(--ok); color:#06110b; cursor:pointer; min-height:44px; }
+  #startBtn { width:100%; max-width:520px; margin-bottom:14px; }
+  button.stop { background:var(--bad); color:#fff; }
+  .small { background:var(--line); color:var(--text); font-size:14px; padding:8px 12px; }
+  select { background:var(--line); color:var(--text); border:0; border-radius:10px; padding:10px; font-size:16px; min-height:44px; }
+  #log { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:16px; line-height:1.7; max-height:110px; overflow-y:auto; word-break:break-word; margin-top:10px; color:var(--muted); }
+  .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px; }
+  .head h2 { margin:0; }
+  label { color:var(--muted); font-size:13px; display:block; margin-top:12px; }
+  input[type=range] { width:100%; }
+  #level { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin-top:6px; }
+  #levelBar { height:100%; width:0; background:var(--ok); }
+  #status { color:var(--muted); font-size:13px; text-align:center; margin-bottom:10px; min-height:18px; max-width:520px; }
+  #staff { width:100%; height:auto; display:block; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; color:var(--muted); font-weight:500; padding:6px 4px; border-bottom:1px solid var(--line); }
+  td { padding:6px 4px; border-bottom:1px solid var(--line); }
+  td.n, th.n { text-align:right; font-variant-numeric:tabular-nums; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:13px; font-weight:600; }
+  .empty { color:var(--muted); font-size:14px; }
+  .controls { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+  #target { font-size:64px; font-weight:700; text-align:center; margin:10px 0 4px; }
+  #targetNext { text-align:center; color:var(--muted); font-size:14px; }
+  #prog { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin-top:12px; }
+  #progBar { height:100%; width:0; background:var(--ok); transition:width .2s; }
+  #summary { font-size:15px; line-height:1.6; margin-top:12px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+  <h1>VIOLIN NOTE READER</h1>
+  <div id="status">Tap Start and allow microphone access.</div>
+  <button id="startBtn">Start listening</button>
+
+  <!-- Live note -->
+  <div class="card">
+    <div id="note">–</div>
+    <div class="meter"><div class="scale"></div><div class="tick"></div><div id="needle"></div></div>
+    <div class="labels"><span>−50¢ flat</span><span>in tune</span><span>sharp +50¢</span></div>
+    <div class="row"><span>Frequency <b id="freq">–</b></span><span>Off by <b id="cents">–</b></span></div>
+    <div class="row"><span>Likely string <b id="string">–</b></span><span>Target <b id="targetHz">–</b></span></div>
+  </div>
+
+  <!-- Staff -->
+  <div class="card">
+    <div class="head"><h2>What you played</h2>
+      <div><button class="small" id="copyBtn">Copy</button> <button class="small" id="clearBtn">Clear</button></div>
+    </div>
+    <svg id="staff" viewBox="0 0 480 150" aria-label="Notes on a treble staff"></svg>
+    <div id="log"></div>
+  </div>
+
+  <!-- Practice -->
+  <div class="card">
+    <h2>Scale practice</h2>
+    <div class="controls">
+      <select id="pRoot"></select>
+      <select id="pType">
+        <option value="major">Major</option>
+        <option value="natural">Natural minor</option>
+        <option value="harmonic">Harmonic minor</option>
+      </select>
+      <select id="pOct"><option value="1">1 octave</option><option value="2" selected>2 octaves</option><option value="3">3 octaves</option></select>
+    </div>
+    <button id="pBtn" style="width:100%;margin-top:10px">Start scale</button>
+    <div id="pArea" class="hidden">
+      <div id="target">–</div>
+      <div id="targetNext"></div>
+      <div id="prog"><div id="progBar"></div></div>
+    </div>
+    <div id="summary"></div>
+  </div>
+
+  <!-- Coaching -->
+  <div class="card">
+    <h2>Intonation coach</h2>
+    <div class="row" style="margin:0 0 10px"><span>Overall in tune <b id="overall">–</b></span><span>Notes tracked <b id="tracked">0</b></span></div>
+    <div id="missed"><div class="empty">Play for a bit and your most-missed notes show up here.</div></div>
+  </div>
+
+  <!-- Settings -->
+  <div class="card">
+    <h2>Settings</h2>
+    <label>Mic level</label>
+    <div id="level"><div id="levelBar"></div></div>
+    <label>Noise gate (raise if it picks up room noise): <b id="gateVal">0.010</b></label>
+    <input type="range" id="gate" min="0.002" max="0.08" step="0.001" value="0.01">
+    <label>"In tune" means within ± <b id="tolVal">10</b> cents</label>
+    <input type="range" id="tol" min="3" max="25" step="1" value="10">
+    <label>A4 reference: <b id="a4Val">440</b> Hz</label>
+    <input type="range" id="a4" min="430" max="450" step="1" value="440">
+    <label>Note names</label>
+    <select id="spelling"><option value="sharp">Sharps (C♯, F♯)</option><option value="flat">Flats (D♭, B♭)</option></select>
+  </div>
+
+<script>
+{
+// ===================== Settings & state =====================
+const SHARP = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
+const FLAT  = ['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
+const LETTER_STEP = {C:0, D:1, E:2, F:3, G:4, A:5, B:6};
+const MIN_FREQ = 180, MAX_FREQ = 3200;
+const HOLD_FRAMES = 5;      // frames a note must hold before it counts (~0.08 s)
+const HIT_FRAMES = 8;       // frames in tune needed to pass a practice note (~0.13 s)
+const STRINGS = [{name:'G',midi:55},{name:'D',midi:62},{name:'A',midi:69},{name:'E',midi:76}];
+const COLOR = {ok:'#3ecf8e', warn:'#f5a524', bad:'#f25f5c'};
+
+let a4 = 440, gate = 0.01, tol = 10, useFlats = false;
+let audioCtx = null, analyser = null, stream = null, buf = null, running = false, wakeLock = null;
+let recent = [], candidate = null, candidateCount = 0, lastLogged = null, silentFrames = 0, frameNo = 0;
+const logNotes = [];        // each entry: {midi, sum, n} or 'rest'
+const stats = {};           // per note: {n, inTune, sum}
+let practice = null;
+
+const $ = id => document.getElementById(id);
+
+// ===================== Music maths =====================
+const freqToMidi = f => 69 + 12 * Math.log2(f / a4);
+const midiToFreq = m => a4 * Math.pow(2, (m - 69) / 12);
+function spell(m) {
+  const name = (useFlats ? FLAT : SHARP)[((m % 12) + 12) % 12];
+  const octave = Math.floor(m / 12) - 1;
+  return {letter:name[0], acc:name.slice(1), octave, full:name + octave};
+}
+function likelyString(m) { let s = STRINGS[0]; for (const st of STRINGS) if (m >= st.midi) s = st; return m < 55 ? '–' : s.name; }
+const grade = c => Math.abs(c) <= tol ? 'ok' : Math.abs(c) <= tol * 2 ? 'warn' : 'bad';
+const signed = c => (c > 0 ? '+' : '') + Math.round(c) + '¢';
+
+// ===================== Pitch detection (YIN) =====================
+function detectPitch(data, sr) {
+  let rms = 0;
+  for (let i = 0; i < data.length; i++) rms += data[i] * data[i];
+  rms = Math.sqrt(rms / data.length);
+  $('levelBar').style.width = Math.min(100, rms * 600) + '%';
+  if (rms < gate) return null;
+
+  const minLag = Math.floor(sr / MAX_FREQ), maxLag = Math.ceil(sr / MIN_FREQ);
+  const W = data.length - maxLag;
+  const d = new Float32Array(maxLag + 1);
+  for (let lag = 1; lag <= maxLag; lag++) {
+    let sum = 0;
+    for (let i = 0; i < W; i++) { const x = data[i] - data[i + lag]; sum += x * x; }
+    d[lag] = sum;
+  }
+  const cm = new Float32Array(maxLag + 1); cm[0] = 1; let acc = 0;
+  for (let lag = 1; lag <= maxLag; lag++) { acc += d[lag]; cm[lag] = acc === 0 ? 1 : d[lag] * lag / acc; }
+
+  let tau = -1;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    if (cm[lag] < 0.15) { while (lag + 1 <= maxLag && cm[lag + 1] < cm[lag]) lag++; tau = lag; break; }
+  }
+  if (tau === -1) return null;
+  let t = tau;
+  if (tau > 1 && tau < maxLag) {
+    const a = cm[tau - 1], b = cm[tau], c = cm[tau + 1], den = a - 2 * b + c;
+    if (den !== 0) t = tau + (a - c) / (2 * den);
+  }
+  return sr / t;
+}
+
+// ===================== Per-frame handling =====================
+function handleFrame(freq) {
+  frameNo++;
+  if (freq === null) {
+    if (++silentFrames > 8) {
+      if (silentFrames === 9) {
+        $('note').innerHTML = '–'; $('note').style.color = 'var(--text)';
+        ['freq','cents','string','targetHz'].forEach(id => $(id).textContent = '–');
+        $('needle').style.left = '50%';
+        if (lastLogged !== null && lastLogged !== 'rest') { lastLogged = 'rest'; addLog('rest'); }
+      }
+      recent = []; candidate = null; candidateCount = 0;
+      if (practice) practice.ok = 0;
+    }
+    return;
+  }
+  silentFrames = 0;
+  recent.push(freq); if (recent.length > 5) recent.shift();
+  const f = [...recent].sort((x, y) => x - y)[Math.floor(recent.length / 2)];
+  const exact = freqToMidi(f), midi = Math.round(exact), cents = (exact - midi) * 100;
+
+  // Live display
+  const sp = spell(midi);
+  $('note').innerHTML = sp.letter + (sp.acc ? '<sup>' + sp.acc + '</sup>' : '') + '<sub>' + sp.octave + '</sub>';
+  $('note').style.color = 'var(--' + grade(cents) + ')';
+  $('freq').textContent = f.toFixed(1) + ' Hz';
+  $('cents').textContent = signed(cents);
+  $('string').textContent = likelyString(midi);
+  $('targetHz').textContent = midiToFreq(midi).toFixed(1) + ' Hz';
+  $('needle').style.left = Math.max(0, Math.min(100, 50 + cents)) + '%';
+
+  // Stability check
+  if (midi === candidate) candidateCount++; else { candidate = midi; candidateCount = 1; }
+  const stable = candidateCount >= HOLD_FRAMES;
+  if (candidateCount === HOLD_FRAMES && midi !== lastLogged) { lastLogged = midi; addLog({midi, sum:0, n:0}); }
+
+  if (stable) {
+    // Coaching stats
+    const s = stats[midi] || (stats[midi] = {n:0, inTune:0, sum:0});
+    s.n++; s.sum += cents; if (Math.abs(cents) <= tol) s.inTune++;
+    // Average cents of the note currently on the staff
+    const last = logNotes[logNotes.length - 1];
+    if (last && last !== 'rest' && last.midi === midi) { last.sum += cents; last.n++; }
+  }
+  practiceFrame(midi, cents, stable);
+  if (frameNo % 15 === 0) { drawStaff(); renderStats(); }
+}
+
+// ===================== Note log + staff =====================
+function addLog(item) {
+  if (item === 'rest' && (logNotes.length === 0 || logNotes[logNotes.length - 1] === 'rest')) return;
+  logNotes.push(item);
+  if (practice && item !== 'rest' && item.midi !== practice.seq[practice.idx]) practice.wrong++;
+  $('log').textContent = logText();
+  $('log').scrollTop = $('log').scrollHeight;
+  drawStaff();
+}
+const logText = () => logNotes.map(n => n === 'rest' ? '|' : spell(n.midi).full).join(' ');
+
+function drawStaff() {
+  const W = 480, gap = 10, bottom = 112, x0 = 62, show = 14;
+  const step = (W - x0 - 8) / show;
+  let s = '';
+  for (let i = 0; i < 5; i++) s += `<line x1="0" x2="${W}" y1="${bottom - i * gap}" y2="${bottom - i * gap}" stroke="#4a5462" stroke-width="1"/>`;
+  s += `<text x="4" y="${bottom + 9}" font-size="62" fill="#c9d1db" font-family="'Noto Music','Segoe UI Symbol','Apple Symbols',serif">𝄞</text>`;
+  logNotes.filter(it => it !== 'rest').slice(-show).forEach((it, i) => {
+    const x = x0 + i * step + step / 2;
+    const sp = spell(it.midi);
+    const steps = sp.octave * 7 + LETTER_STEP[sp.letter] - (4 * 7 + 2);   // 0 = E4, bottom line
+    const y = bottom - steps * gap / 2;
+    for (let k = -2; k >= steps; k -= 2) s += `<line x1="${x - 10}" x2="${x + 10}" y1="${bottom - k * gap / 2}" y2="${bottom - k * gap / 2}" stroke="#8a94a3"/>`;
+    for (let k = 10; k <= steps; k += 2) s += `<line x1="${x - 10}" x2="${x + 10}" y1="${bottom - k * gap / 2}" y2="${bottom - k * gap / 2}" stroke="#8a94a3"/>`;
+    const col = it.n ? COLOR[grade(it.sum / it.n)] : '#eef1f5';
+    if (steps < 4) s += `<line x1="${x + 5.6}" x2="${x + 5.6}" y1="${y}" y2="${y - 32}" stroke="${col}" stroke-width="1.5"/>`;
+    else           s += `<line x1="${x - 5.6}" x2="${x - 5.6}" y1="${y}" y2="${y + 32}" stroke="${col}" stroke-width="1.5"/>`;
+    s += `<ellipse cx="${x}" cy="${y}" rx="6.4" ry="4.6" transform="rotate(-20 ${x} ${y})" fill="${col}"/>`;
+    if (sp.acc) s += `<text x="${x - 19}" y="${y + 5}" font-size="15" fill="${col}">${sp.acc}</text>`;
+  });
+  $('staff').innerHTML = s;
+}
+
+// ===================== Intonation coach =====================
+function renderStats() {
+  const notes = Object.entries(stats).map(([m, s]) => ({midi:+m, ...s, pct:s.inTune / s.n * 100, avg:s.sum / s.n}));
+  const totalN = notes.reduce((a, b) => a + b.n, 0), totalIn = notes.reduce((a, b) => a + b.inTune, 0);
+  $('overall').textContent = totalN ? Math.round(totalIn / totalN * 100) + '%' : '–';
+  $('tracked').textContent = notes.filter(n => n.n >= 20).length;
+  const missed = notes.filter(n => n.n >= 20).sort((a, b) => a.pct - b.pct).slice(0, 5);
+  if (!missed.length) return;
+  $('missed').innerHTML = '<table><thead><tr><th>Most missed</th><th class="n">Held</th><th class="n">In tune</th><th class="n">Tends to be</th></tr></thead><tbody>' +
+    missed.map(n => {
+      const g = grade(n.avg);
+      return `<tr><td><b>${spell(n.midi).full}</b></td><td class="n">${(n.n / 60).toFixed(1)}s</td>` +
+             `<td class="n">${Math.round(n.pct)}%</td>` +
+             `<td class="n"><span class="pill" style="background:${COLOR[g]}22;color:${COLOR[g]}">${signed(n.avg)} ${n.avg < 0 ? 'flat' : 'sharp'}</span></td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+function sessionSummary() {
+  const notes = Object.entries(stats).map(([m, s]) => ({midi:+m, ...s, pct:s.inTune / s.n * 100, avg:s.sum / s.n})).filter(n => n.n >= 20);
+  if (!notes.length) return 'Stopped.';
+  const totalN = notes.reduce((a, b) => a + b.n, 0), totalIn = notes.reduce((a, b) => a + b.inTune, 0);
+  const worst = notes.sort((a, b) => a.pct - b.pct).slice(0, 3).map(n => `${spell(n.midi).full} (${signed(n.avg)})`).join(', ');
+  return `Session: ${Math.round(totalIn / totalN * 100)}% in tune. Work on: ${worst}.`;
+}
+
+// ===================== Scale practice =====================
+const SCALES = {major:[2,2,1,2,2,2,1], natural:[2,1,2,2,1,2,2], harmonic:[2,1,2,2,1,3,1]};
+const ROOTS = [['G',7],['A♭',8],['A',9],['B♭',10],['B',11],['C',0],['D♭',1],['D',2],['E♭',3],['E',4],['F',5],['F♯',6]];
+$('pRoot').innerHTML = ROOTS.map(([n, pc]) => `<option value="${pc}">${n}</option>`).join('');
+$('pRoot').value = '2';
+
+function startPractice() {
+  const pc = +$('pRoot').value, type = $('pType').value, octs = +$('pOct').value;
+  let m = 55; while (((m % 12) + 12) % 12 !== pc) m++;           // lowest root on the violin (G3 or above)
+  const up = [m];
+  for (let o = 0; o < octs; o++) for (const iv of SCALES[type]) up.push(up[up.length - 1] + iv);
+  const seq = up.concat(up.slice(0, -1).reverse());
+  // Flat keys read better with flat names
+  const flatMajor = [5, 10, 3, 8, 1], flatMinor = [2, 7, 0, 5, 10, 3];
+  useFlats = (type === 'major' ? flatMajor : flatMinor).includes(pc);
+  $('spelling').value = useFlats ? 'flat' : 'sharp';
+  practice = {seq, idx:0, ok:0, acc:[], wrong:0, results:[], landed:null, t0:performance.now(), tTarget:performance.now()};
+  $('pArea').classList.remove('hidden'); $('summary').textContent = '';
+  $('pBtn').textContent = 'Stop scale'; $('pBtn').classList.add('stop');
+  renderPractice();
+  if (!running) start();
+}
+
+function stopPractice(msg) {
+  practice = null;
+  $('pArea').classList.add('hidden');
+  $('pBtn').textContent = 'Start scale'; $('pBtn').classList.remove('stop');
+  if (msg !== undefined) $('summary').innerHTML = msg;
+}
+
+function renderPractice() {
+  const p = practice, t = p.seq[p.idx], nx = p.seq[p.idx + 1];
+  $('target').textContent = spell(t).full;
+  $('targetNext').textContent = (nx !== undefined ? 'Next: ' + spell(nx).full + ' · ' : '') + `${p.idx + 1} of ${p.seq.length}`;
+  $('progBar').style.width = (p.idx / p.seq.length * 100) + '%';
+}
+
+function practiceFrame(midi, cents, stable) {
+  const p = practice; if (!p || !stable) return;
+  const target = p.seq[p.idx];
+  if (midi !== target) { p.ok = 0; p.acc = []; return; }
+  if (p.landed === null) p.landed = cents;                     // where the finger first landed
+  if (Math.abs(cents) <= tol) { p.ok++; p.acc.push(cents); } else { p.ok = 0; p.acc = []; }
+  if (p.ok >= HIT_FRAMES) {
+    p.results.push({midi:target, landed:p.landed, secs:(performance.now() - p.tTarget) / 1000});
+    p.idx++; p.ok = 0; p.acc = []; p.landed = null; p.tTarget = performance.now();
+    if (p.idx >= p.seq.length) finishPractice(); else renderPractice();
+  }
+}
+
+function finishPractice() {
+  const p = practice, r = p.results;
+  const total = (performance.now() - p.t0) / 1000;
+  const avgLand = r.reduce((a, b) => a + Math.abs(b.landed), 0) / r.length;
+  const cleanLand = r.filter(x => Math.abs(x.landed) <= tol).length;
+  const worst = [...r].sort((a, b) => Math.abs(b.landed) - Math.abs(a.landed)).slice(0, 3);
+  const slow = [...r].sort((a, b) => b.secs - a.secs)[0];
+  stopPractice(
+    `<b>Scale done in ${total.toFixed(1)}s.</b><br>` +
+    `Landed in tune first time: <b>${cleanLand} of ${r.length}</b> (avg landing ${avgLand.toFixed(0)}¢ off)<br>` +
+    `Wrong notes on the way: <b>${p.wrong}</b><br>` +
+    `Worst landings: ${worst.map(x => `<b>${spell(x.midi).full}</b> ${signed(x.landed)}`).join(', ')}<br>` +
+    `Slowest to find: <b>${spell(slow.midi).full}</b> (${slow.secs.toFixed(1)}s)`);
+}
+
+// ===================== Audio start/stop + phone reliability =====================
+function loop() {
+  if (!running) return;
+  analyser.getFloatTimeDomainData(buf);
+  handleFrame(detectPitch(buf, audioCtx.sampleRate));
+  requestAnimationFrame(loop);
+}
+
+async function keepAwake() {
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+
+async function start() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}});
+  } catch (e) {
+    $('status').textContent = 'Mic blocked (' + e.name + '). Open this page in Chrome or Safari, not a file preview, and allow the microphone.';
+    return;
+  }
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
+  const src = audioCtx.createMediaStreamSource(stream);
+  analyser = audioCtx.createAnalyser(); analyser.fftSize = 2048;
+  buf = new Float32Array(analyser.fftSize);
+  src.connect(analyser);
+  audioCtx.onstatechange = () => { if (running && audioCtx.state !== 'running') $('status').textContent = 'Audio paused by the phone. Tap anywhere to resume.'; };
+  stream.getTracks()[0].onended = () => { $('status').textContent = 'Mic was taken by another app. Tap Start again.'; stop(); };
+  running = true; keepAwake();
+  $('startBtn').textContent = 'Stop listening'; $('startBtn').classList.add('stop');
+  $('status').textContent = 'Listening… play a note.';
+  loop();
+}
+
+function stop() {
+  running = false;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  if (audioCtx && audioCtx.state !== 'closed') audioCtx.close();
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  $('startBtn').textContent = 'Start listening'; $('startBtn').classList.remove('stop');
+  if (practice) stopPractice('');
+  renderStats();
+  $('status').textContent = sessionSummary();
+}
+
+document.addEventListener('pointerdown', () => {
+  if (running && audioCtx && audioCtx.state === 'suspended') audioCtx.resume().then(() => $('status').textContent = 'Listening… play a note.');
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && running) { keepAwake(); if (audioCtx.state === 'suspended') audioCtx.resume(); }
+});
+
+// ===================== Buttons & settings =====================
+$('startBtn').onclick = () => running ? stop() : start();
+$('pBtn').onclick = () => practice ? stopPractice('') : startPractice();
+$('clearBtn').onclick = () => {
+  logNotes.length = 0; lastLogged = null; $('log').textContent = '';
+  for (const k in stats) delete stats[k];
+  $('missed').innerHTML = '<div class="empty">Play for a bit and your most-missed notes show up here.</div>';
+  $('overall').textContent = '–'; $('tracked').textContent = '0';
+  drawStaff();
+};
+$('copyBtn').onclick = () => {
+  navigator.clipboard?.writeText(logText()).then(() => $('status').textContent = 'Notes copied.').catch(() => $('status').textContent = 'Copy not allowed here.');
+};
+$('gate').oninput = e => { gate = +e.target.value; $('gateVal').textContent = gate.toFixed(3); };
+$('tol').oninput  = e => { tol = +e.target.value; $('tolVal').textContent = tol; drawStaff(); renderStats(); };
+$('a4').oninput   = e => { a4 = +e.target.value; $('a4Val').textContent = a4; };
+$('spelling').onchange = e => { useFlats = e.target.value === 'flat'; $('log').textContent = logText(); drawStaff(); renderStats(); };
+drawStaff();
+}
+</script>
+</body>
+</html>
